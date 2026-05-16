@@ -1,8 +1,6 @@
-"""
-churn_predictor.py
-Fintech Customer Churn Predictor
-Covers: EDA, feature engineering, model training, evaluation & visualisation.
-"""
+# churn_predictor.py
+# Fintech Customer Churn Predictor
+# Covers: EDA, feature engineering, model training, evaluation & visualisation.
 
 import pandas as pd
 import numpy as np
@@ -28,7 +26,7 @@ os.makedirs('../visuals', exist_ok=True)
 os.makedirs('../models', exist_ok=True)
 
 # ── Load Data ─────────────────────────────────────────────────────────────────
-df = pd.read_csv('../data/customer_data.csv')
+df = pd.read_csv('/content/sample_data/customer_data.csv')
 print(f"✅ Loaded {len(df)} customer records | Churn rate: {df['churned'].mean()*100:.1f}%\n")
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -159,3 +157,217 @@ plt.close()
 print("✅ Chart saved: confusion_matrix.png")
 
 print("\n🎉 Churn prediction complete! Check /visuals for all charts.")
+!pip install shap
+import shap
+
+# Choose the Random Forest model for SHAP explanation as it performed better
+explainer = shap.TreeExplainer(rf_model)
+shap_values = explainer.shap_values(X_test)
+
+# Plot summary of feature importances (absolute SHAP values)
+shap.summary_plot(shap_values, X_test, feature_names=X.columns, plot_type="bar", show=False)
+plt.title('SHAP Feature Importance (Random Forest)')
+plt.tight_layout()
+plt.savefig('../visuals/shap_feature_importance.png', dpi=150)
+plt.show()
+plt.close()
+print("✅ Chart saved: shap_feature_importance.png")
+# This summary plot shows the average impact of each feature on the model's output magnitude. The features are ordered by their importance from top to bottom.
+import pandas as pd
+
+X_test_df = pd.DataFrame(X_test, columns=X.columns)
+shap.summary_plot(shap_values[:, :, 1], X_test_df, show=False)
+plt.title('SHAP Summary Plot (Random Forest - Churn Class)')
+plt.tight_layout()
+plt.savefig('../visuals/shap_summary_plot_churn.png', dpi=150)
+plt.show()
+plt.close()
+print("✅ Chart saved: shap_summary_plot_churn.png")
+# In this summary plot (for the churn class, where red indicates higher feature values and blue indicates lower), each point represents a customer. The position on the x-axis shows the SHAP value for that feature, indicating how much that feature's value contributed to pushing the model's output (churn probability) higher or lower. The color indicates the original value of the feature (red=high, blue=low), and the density of points shows how many customers have similar SHAP values.
+from sklearn.model_selection import RandomizedSearchCV
+
+print("\n═════════════════════════════════════════════════════════════════════════════")
+print("2. HYPERPARAMETER TUNING — RANDOM FOREST")
+print("═════════════════════════════════════════════════════════════════════════════")
+
+# Define the parameter space for Random Forest
+param_dist_rf = {
+    'n_estimators': [100, 200, 300, 400, 500],
+    'max_features': ['sqrt', 'log2'],
+    'max_depth': [10, 20, 30, None],
+    'min_samples_split': [2, 5, 10],
+    'min_samples_leaf': [1, 2, 4],
+    'bootstrap': [True, False]
+}
+
+# Initialize RandomizedSearchCV for Random Forest
+random_search_rf = RandomizedSearchCV(
+    RandomForestClassifier(random_state=42),
+    param_distributions=param_dist_rf,
+    n_iter=10, # Number of parameter settings that are sampled
+    cv=5,
+    verbose=1,
+    n_jobs=-1, # Use all available cores
+    scoring='roc_auc',
+    random_state=42
+)
+
+# Fit the random search model
+random_search_rf.fit(X_train, y_train)
+
+print(f"\n✅ Best parameters for Random Forest: {random_search_rf.best_params_}")
+print(f"✅ Best AUC score for Random Forest: {random_search_rf.best_score_:.3f}")
+
+# Store the best Random Forest model
+best_rf_model = random_search_rf.best_estimator_
+
+print("\n═════════════════════════════════════════════════════════════════════════════")
+print("3. HYPERPARAMETER TUNING — LOGISTIC REGRESSION")
+print("═════════════════════════════════════════════════════════════════════════════")
+
+# Define the parameter space for Logistic Regression
+param_dist_lr = {
+    'penalty': ['l1', 'l2'],
+    'C': np.logspace(-4, 4, 20),
+    'solver': ['liblinear', 'saga']
+}
+
+# Initialize RandomizedSearchCV for Logistic Regression
+random_search_lr = RandomizedSearchCV(
+    LogisticRegression(random_state=42, max_iter=500),
+    param_distributions=param_dist_lr,
+    n_iter=10, # Number of parameter settings that are sampled
+    cv=5,
+    verbose=1,
+    n_jobs=-1, # Use all available cores
+    scoring='roc_auc',
+    random_state=42
+)
+
+# Fit the random search model
+random_search_lr.fit(X_train, y_train)
+
+print(f"\n✅ Best parameters for Logistic Regression: {random_search_lr.best_params_}")
+print(f"✅ Best AUC score for Logistic Regression: {random_search_lr.best_score_:.3f}")
+
+# Store the best Logistic Regression model
+best_lr_model = random_search_lr.best_estimator_
+### 4. CROSS-VALIDATION
+from sklearn.model_selection import cross_val_score
+
+print("\n═════════════════════════════════════════════════════════════════════════════")
+print("4. CROSS-VALIDATION — MODEL EVALUATION")
+print("═════════════════════════════════════════════════════════════════════════════")
+
+# Cross-validation for the best Random Forest model
+rf_cv_scores = cross_val_score(best_rf_model, X_scaled, y, cv=5, scoring='roc_auc', n_jobs=-1)
+print(f"\n✅ Random Forest Cross-Validation AUC: {rf_cv_scores.mean():.3f} (+/- {rf_cv_scores.std():.3f})")
+
+# Cross-validation for the best Logistic Regression model
+lr_cv_scores = cross_val_score(best_lr_model, X_scaled, y, cv=5, scoring='roc_auc', n_jobs=-1)
+print(f"✅ Logistic Regression Cross-Validation AUC: {lr_cv_scores.mean():.3f} (+/- {lr_cv_scores.std():.3f})")
+
+### 5. COMPARING ADDITIONAL MODELS
+from sklearn.svm import SVC
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.neural_network import MLPClassifier
+
+print("\n═════════════════════════════════════════════════════════════════════════════")
+print("5. COMPARING ADDITIONAL MODELS")
+print("═════════════════════════════════════════════════════════════════════════════")
+
+# Initialize additional models
+additional_models = {
+    'Support Vector Machine': SVC(probability=True, random_state=42),
+    'K-Nearest Neighbors': KNeighborsClassifier(),
+    'Decision Tree': DecisionTreeClassifier(random_state=42),
+    'Neural Network (MLP)': MLPClassifier(random_state=42, max_iter=1000)
+}
+
+# Include the best models from hyperparameter tuning for comparison
+comparison_models = {
+    'Best Logistic Regression': best_lr_model,
+    'Best Random Forest': best_rf_model,
+    **additional_models
+}
+
+model_performance = {}
+
+for name, model in comparison_models.items():
+    print(f"\nTraining {name}...")
+    model.fit(X_train, y_train)
+    y_proba = model.predict_proba(X_test)[:, 1]
+    auc = roc_auc_score(y_test, y_proba)
+    model_performance[name] = auc
+    print(f"✅ {name} AUC: {auc:.3f}")
+
+# Display overall comparison
+print("\n═════════════════════════════════════════════════════════════════════════════")
+print("MODEL COMPARISON — AUC Scores")
+print("═════════════════════════════════════════════════════════════════════════════")
+
+for name, auc in sorted(model_performance.items(), key=lambda item: item[1], reverse=True):
+    print(f"  {name}: {auc:.3f}")
+### 6. ERROR ANALYSIS
+print("\n═════════════════════════════════════════════════════════════════════════════")
+print("6. ERROR ANALYSIS — MISCLASSIFIED SAMPLES")
+print("═════════════════════════════════════════════════════════════════════════════")
+
+# Get predictions from the best Random Forest model
+y_pred_rf = best_rf_model.predict(X_test)
+
+# Create a DataFrame for test data with original features for easier analysis
+X_test_original_features = pd.DataFrame(scaler.inverse_transform(X_test), columns=X.columns)
+X_test_original_features['true_churn'] = y_test.values
+X_test_original_features['predicted_churn'] = y_pred_rf
+X_test_original_features['prediction_proba_churn'] = best_rf_model.predict_proba(X_test)[:, 1]
+
+# Identify misclassified samples
+misclassified_samples = X_test_original_features[X_test_original_features['true_churn'] != X_test_original_features['predicted_churn']]
+
+print(f"\nTotal misclassified samples by Random Forest: {len(misclassified_samples)}")
+
+if not misclassified_samples.empty:
+    # Separate false positives and false negatives
+    false_positives = misclassified_samples[misclassified_samples['true_churn'] == 0] # Predicted churn, but did not churn
+    false_negatives = misclassified_samples[misclassified_samples['true_churn'] == 1] # Predicted no churn, but did churn
+
+    print(f"  False Positives (predicted churn, true no churn): {len(false_positives)}")
+    print(f"  False Negatives (predicted no churn, true churn): {len(false_negatives)}")
+
+    print("\n═══════════════════════")
+    print("  False Positives Sample")
+    print("═══════════════════════")
+    if not false_positives.empty:
+        print(false_positives.head())
+    else:
+        print("No False Positives found.")
+
+    print("\n═══════════════════════")
+    print("  False Negatives Sample")
+    print("═══════════════════════")
+    if not false_negatives.empty:
+        print(false_negatives.head())
+    else:
+        print("No False Negatives found.")
+
+    # Further analysis: Look at descriptive statistics of misclassified groups
+    print("\n═════════════════════════════════════════════════════════════════════════════")
+    print("Descriptive Statistics for False Positives (Predicted Churn, True No Churn)")
+    print("═════════════════════════════════════════════════════════════════════════════")
+    if not false_positives.empty:
+        print(false_positives.describe())
+    else:
+        print("No False Positives to describe.")
+
+    print("\n═════════════════════════════════════════════════════════════════════════════")
+    print("Descriptive Statistics for False Negatives (Predicted No Churn, True Churn)")
+    print("═════════════════════════════════════════════════════════════════════════════")
+    if not false_negatives.empty:
+        print(false_negatives.describe())
+    else:
+        print("No False Negatives to describe.")
+
+else:
+    print("No misclassified samples found")
